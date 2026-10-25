@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>workout-sync</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#1d2025; --muted:#6b7280; --line:#e5e7eb;
+          --ok:#15803d; --bad:#b91c1c; --warn:#a16207; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111317; --card:#1a1d23; --fg:#e8eaed; --muted:#9aa0a8; --line:#2c3038;
+            --ok:#4ade80; --bad:#f87171; --warn:#facc15; --accent:#60a5fa; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 16px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .grid { display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:12px; }
+  .muted { color:var(--muted); font-size: 13px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .msg { background:var(--card); border-left:4px solid var(--accent); padding:10px 14px; border-radius:6px; margin-bottom:12px; }
+  form { margin: 6px 0 0; }
+  form.inline { display:inline; margin:0; }
+  input { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg);
+          color:var(--fg); width:100%; margin-bottom:6px; }
+  button, .btn { font:inherit; padding:6px 12px; border-radius:6px; border:1px solid var(--accent);
+                 background:var(--accent); color:#fff; cursor:pointer; text-decoration:none; display:inline-block; }
+  button.ghost { background:transparent; color:var(--accent); padding:2px 8px; font-size:13px; }
+  .row { display:flex; gap:8px; align-items:end; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:130px; }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse: collapse; font-size:14px; }
+  th, td { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); vertical-align:top; white-space:nowrap; }
+  td.name { white-space:normal; min-width:160px; }
+  a { color:var(--accent); }
+  .detail { color:var(--muted); font-size:12px; white-space:normal; max-width:260px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>workout-sync</h1>
+  {% if msg %}<div class="msg">{{ msg }}</div>{% endif %}
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <h2>Sync</h2>
+        {% if running %}<span class="warn">Running now…</span>
+        {% elif last %}Last run {{ fmt_ts(last.started) }} ({{ last.trigger }}):
+          <span class="{{ 'bad' if last.errors else 'ok' }}">{{ last.new }} new, {{ last.uploaded }} uploaded, {{ last.failed }} failed</span>
+        {% else %}<span class="muted">No runs yet</span>{% endif %}
+        <div class="muted">
+          Schedule: {{ s.sync_times|join(', ') }} ({{ s.timezone }}){% if next_run %} · next {{ next_run.strftime('%Y-%m-%d %H:%M') }}{% endif %}
+          {% if since %} · syncing activities since {{ since }}{% endif %}
+        </div>
+        {% if last and last.errors %}<div class="detail bad">{{ last.errors|join(' · ') }}</div>{% endif %}
+      </div>
+      <form method="post" action="/sync-now"><button>Sync now</button></form>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Strava <span class="muted">(source)</span></h2>
+      {% if strava.connected %}
+        <div class="ok">Connected{% if strava.athlete_name %} as {{ strava.athlete_name }}{% endif %}</div>
+        <form method="post" action="/strava/disconnect"><button class="ghost">Disconnect</button></form>
+      {% else %}
+        <div class="muted">Not connected</div>
+        <form method="get" action="/strava/connect"><button>Connect Strava</button></form>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Garmin Connect {% if not s.garmin_enabled %}<span class="muted">(disabled)</span>{% endif %}</h2>
+      {% if garmin.waiting_for_mfa %}
+        <form method="post" action="/garmin/mfa">
+          <input name="code" placeholder="Code from Garmin" autocomplete="one-time-code" required>
+          <button>Send code</button>
+        </form>
+      {% elif garmin.connected %}
+        <div class="ok">Connected</div>
+        <form method="post" action="/garmin/logout"><button class="ghost">Disconnect</button></form>
+      {% else %}
+        <form method="post" action="/garmin/login">
+          <input name="email" type="email" placeholder="Garmin email" required>
+          <input name="password" type="password" placeholder="Password (not stored)" required>
+          <button>Connect Garmin</button>
+        </form>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Polar Flow {% if not s.polar_enabled %}<span class="muted">(disabled)</span>{% endif %}</h2>
+      {% if polar_email %}
+        <div class="ok">Connected as {{ polar_email }}</div>
+        <form method="post" action="/polar/logout"><button class="ghost">Disconnect</button></form>
+      {% else %}
+        <form method="post" action="/polar/login">
+          <input name="email" type="email" placeholder="Polar email" required>
+          <input name="password" type="password" placeholder="Password (stored encrypted)" required>
+          <button>Connect Polar</button>
+        </form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Import older activities</h2>
+    <form method="post" action="/backfill" class="row">
+      <div><span class="muted">From</span><input name="date_from" type="date" required></div>
+      <div><span class="muted">To</span><input name="date_to" type="date" required></div>
+      <div style="flex:0"><button>Import</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Activities</h2>
+    {% if not rows %}<div class="muted">Nothing yet. New WorkOutDoors activities on Strava will show up here.</div>{% else %}
+    <div class="table-wrap"><table>
+      <tr><th>Date</th><th>Activity</th><th>Garmin</th><th>Polar</th></tr>
+      {% for r in rows %}
+      <tr>
+        <td>{{ (r.start_date or '')[:16]|replace('T', ' ') }}</td>
+        <td class="name">
+          <a href="https://www.strava.com/activities/{{ r.strava_id }}" target="_blank" rel="noopener">{{ r.name or r.strava_id }}</a>
+          <div class="muted">{{ r.sport_type }}{% if r.device %} · {{ r.device }}{% endif %}
+            {% if r.garmin_status not in ('skipped', None) or r.polar_status not in ('skipped', None) %} · <a href="/fit/{{ r.strava_id }}.fit">FIT</a>{% endif %}</div>
+          {% if r.skipped_reason %}<div class="detail">Skipped: {{ r.skipped_reason }}</div>{% endif %}
+        </td>
+        {% for t in ('garmin', 'polar') %}
+        {% set st = r[t ~ '_status'] %}
+        <td>
+          <span class="{{ {'done':'ok','duplicate':'ok','failed':'bad','pending':'warn'}.get(st, 'muted') }}">{{ 'already there' if st == 'duplicate' else st }}</span>
+          {% if st == 'failed' %}<span class="muted">({{ r[t ~ '_attempts'] }}×)</span>{% endif %}
+          <form class="inline" method="post" action="/resend/{{ r.strava_id }}/{{ t }}"><button class="ghost">{{ 'Send' if st == 'skipped' else 'Resend' }}</button></form>
+          {% if r[t ~ '_detail'] %}<div class="detail">{{ r[t ~ '_detail'] }}</div>{% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>
