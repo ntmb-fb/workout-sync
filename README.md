@@ -62,7 +62,7 @@ docker compose up -d
 upload `.env` there, then go to **Container Manager → Project → Create**. Select that folder
 and paste the contents of `docker-compose.yml`.
 
-The image is `ghcr.io/ntmb-fb/workout-sync:latest` (linux/amd64).
+The image is `DOCKERHUB_USER/workout-sync:latest` on Docker Hub (linux/amd64).
 Data (database, Garmin tokens, generated FIT files) is stored in `./data`.
 
 ### 3. Connect your accounts
@@ -165,7 +165,8 @@ Code layout (`workout_sync/`):
 | `sync.py` | One sync run: find new activities, upload, retry |
 | `app.py` | Web UI, `/sync`, schedule |
 
-A GitHub Action runs the tests and publishes the `linux/amd64` image to GHCR on every push to `main`.
+A GitHub Action runs the tests and publishes the `linux/amd64` image to Docker Hub on every push to `main`.
+It needs two repository secrets: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write).
 
 ## License
 

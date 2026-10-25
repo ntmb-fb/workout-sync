@@ -1,6 +1,6 @@
 services:
   workout-sync:
-    image: ghcr.io/ntmb-fb/workout-sync:latest
+    image: DOCKERHUB_USER/workout-sync:latest
     container_name: workout-sync
     restart: unless-stopped
     ports:
