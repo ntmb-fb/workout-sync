@@ -166,7 +166,7 @@ Code layout (`workout_sync/`):
 | `app.py` | Web UI, `/sync`, schedule |
 
 A GitHub Action runs the tests and publishes the `linux/amd64` image to Docker Hub on every push to `main`.
-It needs two repository secrets: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write).
+It needs one repository secret: `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write).
 
 ## License
 
