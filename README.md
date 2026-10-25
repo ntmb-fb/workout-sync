@@ -62,7 +62,7 @@ docker compose up -d
 upload `.env` there, then go to **Container Manager → Project → Create**. Select that folder
 and paste the contents of `docker-compose.yml`.
 
-The image is `DOCKERHUB_USER/workout-sync:latest` on Docker Hub (linux/amd64).
+The image is `ntmb/workout-sync:latest` on Docker Hub (linux/amd64).
 Data (database, Garmin tokens, generated FIT files) is stored in `./data`.
 
 ### 3. Connect your accounts

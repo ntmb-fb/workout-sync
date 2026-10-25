@@ -1,6 +1,6 @@
 services:
   workout-sync:
-    image: DOCKERHUB_USER/workout-sync:latest
+    image: ntmb/workout-sync:latest
     container_name: workout-sync
     restart: unless-stopped
     ports:
