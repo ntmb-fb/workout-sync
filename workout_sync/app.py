@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +27,8 @@ from .sync import Syncer, utc_date
 
 log = logging.getLogger(__name__)
 POLAR_CREDS = "polar_credentials"
+WEBHOOK_ID = "strava_webhook_id"
+WEBHOOK_ERROR = "strava_webhook_error"
 
 
 def _redirect(msg: str = "") -> RedirectResponse:
@@ -65,10 +69,42 @@ def create_app(settings: Settings, *, strava: Strava | None = None, garmin: Garm
         scheduler.add_job(lambda: syncer.run("schedule"), CronTrigger(hour=int(hh), minute=int(mm),
                                                                        timezone=settings.timezone))
 
+    def ensure_webhook() -> str:
+        """Make sure Strava pushes events to our callback URL. Returns a status message."""
+        callback = settings.webhook_callback
+        if not callback:
+            return "Set WEBHOOK_URL first"
+        if not settings.strava_client_id:
+            return "Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET first"
+        try:
+            sub_id = None
+            for sub in strava.list_subscriptions():
+                if sub.get("callback_url") == callback:
+                    sub_id = int(sub["id"])
+                else:  # Strava allows one per app, so an old URL has to go
+                    log.info("Removing Strava webhook %s for %s", sub.get("id"), sub.get("callback_url"))
+                    strava.delete_subscription(int(sub["id"]))
+            if sub_id is None:
+                sub_id = strava.create_subscription(callback, settings.webhook_verify_token)
+        except Exception as e:
+            log.warning("Strava webhook setup failed: %s", e)
+            db.set(WEBHOOK_ERROR, str(e)[:300])
+            return f"Webhook setup failed: {e}"
+        db.set(WEBHOOK_ID, sub_id)
+        db.delete(WEBHOOK_ERROR)
+        log.info("Strava webhook %s active for %s", sub_id, callback)
+        return "Strava webhook active"
+
+    def ensure_webhook_soon():
+        time.sleep(3)  # Strava calls us back during setup, so the server must be up first
+        ensure_webhook()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if start_scheduler:
             scheduler.start()
+            if settings.webhook_url and settings.strava_client_id:
+                threading.Thread(target=ensure_webhook_soon, daemon=True).start()
         yield
         if scheduler.running:
             scheduler.shutdown(wait=False)
@@ -101,7 +137,8 @@ def create_app(settings: Settings, *, strava: Strava | None = None, garmin: Garm
             "msg": msg, "s": settings, "rows": db.recent(100), "last": db.get("last_run"),
             "running": syncer.running, "next_run": next_run,
             "since": datetime.fromtimestamp(since).strftime("%Y-%m-%d %H:%M") if since else None,
-            "strava": strava, "garmin": garmin, "polar_email": (db.get_secret(POLAR_CREDS) or {}).get("email"),
+            "strava": strava, "garmin": garmin,
+            "webhook_id": db.get(WEBHOOK_ID), "webhook_error": db.get(WEBHOOK_ERROR), "polar_email": (db.get_secret(POLAR_CREDS) or {}).get("email"),
             "fmt_ts": lambda ts: datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if ts else "",
         })
 
@@ -155,6 +192,40 @@ def create_app(settings: Settings, *, strava: Strava | None = None, garmin: Garm
         if db.get("sync_since") is None:  # go-live: only activities from now on
             db.set("sync_since", datetime.now().timestamp())
         return _redirect("Strava connected")
+
+    # ---- Strava webhook (no login: Strava calls these)
+
+    @app.get("/strava/webhook")
+    def strava_webhook_check(request: Request):
+        q = request.query_params
+        if not settings.webhook_url:
+            raise HTTPException(404)
+        token = q.get("hub.verify_token", "")
+        if q.get("hub.mode") != "subscribe" or not secrets.compare_digest(
+                token.encode(), settings.webhook_verify_token.encode()):
+            raise HTTPException(403)
+        return {"hub.challenge": q.get("hub.challenge", "")}
+
+    @app.post("/strava/webhook")
+    async def strava_webhook(request: Request):
+        if not settings.webhook_url:
+            raise HTTPException(404)
+        try:
+            ev = await request.json()
+        except Exception:
+            raise HTTPException(400)
+        # Strava doesn't sign events, so only act on ones that match our subscription
+        # and athlete. The worst a fake event can do is start a sync.
+        ours = (ev.get("subscription_id") == db.get(WEBHOOK_ID)
+                and (strava.athlete_id is None or ev.get("owner_id") == strava.athlete_id))
+        if ours and ev.get("object_type") == "activity" and ev.get("aspect_type") == "create":
+            log.info("Strava webhook: new activity %s", ev.get("object_id"))
+            syncer.request("webhook")
+        return {"ok": True}  # Strava wants a 200 within 2 seconds
+
+    @app.post("/strava/webhook/setup", dependencies=[Depends(auth)])
+    def strava_webhook_setup():
+        return _redirect(ensure_webhook())
 
     @app.post("/strava/disconnect", dependencies=[Depends(auth)])
     def strava_disconnect():

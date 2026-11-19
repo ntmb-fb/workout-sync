@@ -1,6 +1,7 @@
 """Settings, read from environment variables (see .env.example)."""
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,7 @@ class Settings:
     smtp_user: str = ""
     smtp_password: str = ""
     alert_to: str = ""
+    webhook_url: str = ""  # public base URL Strava can reach; empty = no webhook
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -61,6 +63,7 @@ class Settings:
             smtp_user=e("SMTP_USER", ""),
             smtp_password=e("SMTP_PASSWORD", ""),
             alert_to=e("ALERT_TO", ""),
+            webhook_url=e("WEBHOOK_URL", "").rstrip("/"),
         )
         if e("SYNC_TIMES") is not None:
             s.sync_times = _list(e("SYNC_TIMES"))
@@ -74,6 +77,15 @@ class Settings:
                                   ("SECRET_KEY", self.secret_key)) if not v]
         if missing:
             raise SystemExit(f"Missing required settings: {', '.join(missing)}")
+
+    @property
+    def webhook_callback(self) -> str:
+        return f"{self.webhook_url}/strava/webhook" if self.webhook_url else ""
+
+    @property
+    def webhook_verify_token(self) -> str:
+        """Sent to Strava once; derived so it is not the same as SYNC_TOKEN."""
+        return hashlib.sha256(f"strava-webhook:{self.secret_key}".encode()).hexdigest()[:32]
 
     @property
     def targets(self) -> list[str]:

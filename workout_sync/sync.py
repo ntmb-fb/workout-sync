@@ -43,6 +43,8 @@ class Syncer:
         self.strava = strava
         self.uploaders = uploaders  # target name -> upload function
         self._lock = threading.Lock()
+        self._pending_lock = threading.Lock()
+        self._pending: str | None = None
         self.fit_dir = settings.data_dir / "fit"
 
     @property
@@ -55,6 +57,15 @@ class Syncer:
             return False
         threading.Thread(target=self.run, args=(trigger,), kwargs=kw, daemon=True).start()
         return True
+
+    def request(self, trigger: str) -> bool:
+        """Like start_background, but if a run is busy, run once more after it.
+        Used for webhooks, so a new activity is never missed. True if started now."""
+        with self._pending_lock:
+            if self.start_background(trigger):
+                return True
+            self._pending = trigger
+            return False
 
     def run(self, trigger: str = "manual", backfill: tuple[datetime, datetime] | None = None) -> dict:
         if not self._lock.acquire(blocking=False):
@@ -79,6 +90,10 @@ class Syncer:
             send_alert(self.s, f"{len(summary['errors'])} problem(s) during sync",
                        "\n".join(f"- {e}" for e in summary["errors"]))
         log.info("Sync done: %s", {k: v for k, v in summary.items() if k != "errors"})
+        with self._pending_lock:
+            again, self._pending = self._pending, None
+        if again:
+            self.start_background(again)
         return summary
 
     def _discover(self, summary: dict, backfill: tuple[datetime, datetime] | None) -> None:

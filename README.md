@@ -8,7 +8,7 @@ to Strava by itself. It works with any recording app or device that uploads to S
 
 ```
 Watch app ──auto upload──▶ Strava ──▶ workout-sync ──▶ Garmin Connect
-                                      (polls 4×/day,  └─▶ Polar Flow
+                                      (webhook, 4×/day └─▶ Polar Flow
                                        or on demand)
 ```
 
@@ -21,6 +21,7 @@ Watch app ──auto upload──▶ Strava ──▶ workout-sync ──▶ Gar
 
 - Checks Strava for new activities on a schedule (default 06:00, 12:00, 18:00, 23:00), when you
   press **Sync now**, or when something calls the `/sync` URL.
+- Optionally syncs within seconds of each upload, through a Strava webhook.
 - Takes only activities from the devices you choose (default: `WorkOutDoors`). It ignores manual entries.
 - Builds a FIT file from the Strava data: GPS, heart rate, cadence, power, altitude, laps, pauses.
 - Uploads it to Garmin Connect as an import. Imports are not shared back to Strava, so you get no loops.
@@ -105,6 +106,23 @@ Your phone must be able to reach the host, so this only works on your home netwo
 Strava sometimes needs a minute to process an upload. If the sync runs too early, the next
 scheduled sync picks the activity up.
 
+## Instant sync with a Strava webhook (optional)
+
+Strava can tell workout-sync about each new activity, so it syncs right away instead of at the next
+scheduled time. For this, Strava must be able to reach the container from the internet.
+
+1. Make the container reachable from the internet over HTTPS, for example with your NAS's reverse
+   proxy, a Cloudflare Tunnel or Tailscale Funnel. Strava only calls `/strava/webhook`. If your
+   proxy can, forward only that path. The rest of the UI is password protected either way.
+2. Set `WEBHOOK_URL` in `.env` to that public address, e.g. `https://sync.example.com`, and
+   restart the container.
+3. workout-sync registers the webhook with Strava on startup. The Strava card in the UI shows
+   whether it is active, and has a button to set it up again.
+
+Strava allows one webhook per API app. If your app already has one for another address,
+workout-sync replaces it. Keep the schedule on as a safety net: Strava doesn't resend
+events it couldn't deliver.
+
 ## Settings
 
 All settings are environment variables in `.env`.
@@ -122,6 +140,7 @@ All settings are environment variables in `.env`.
 | `GARMIN_ENABLED`, `POLAR_ENABLED` | `true` | Turn a service on or off. |
 | `GARMIN_SPOOF_DEVICE` | `false` | Label the FIT file as a Garmin watch, so Garmin calculates Training Effect, Load and Status from it. |
 | `GARMIN_SPOOF_PRODUCT` | `3113` | Garmin product id used when spoofing (3113 = Forerunner 945). |
+| `WEBHOOK_URL` | – | Public HTTPS address Strava can reach. Turns on the Strava webhook. Empty = off. |
 | `MAX_ATTEMPTS` | `3` | Automatic retries before an activity needs a manual resend. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `ALERT_TO` | – | Failure emails. For Gmail, use `smtp.gmail.com`, port `587` and an [app password](https://myaccount.google.com/apppasswords). |
 | `PORT` | `8080` | Port inside the container. |
@@ -158,15 +177,18 @@ Code layout (`workout_sync/`):
 
 | File | Role |
 | --- | --- |
-| `strava.py` | Strava OAuth, activity list, streams → `Workout` |
+| `strava.py` | Strava OAuth, webhook subscription, activity list, streams → `Workout` |
 | `fitfile.py` | `Workout` → FIT file |
 | `garmin.py` | Garmin login (with MFA) and upload |
 | `polar.py` | `Workout` → Polar protobuf messages and upload |
 | `sync.py` | One sync run: find new activities, upload, retry |
-| `app.py` | Web UI, `/sync`, schedule |
+| `app.py` | Web UI, `/sync`, Strava webhook, schedule |
 
 A GitHub Action runs the tests and publishes the `linux/amd64` image to Docker Hub on every push to `main`.
 It needs one repository secret: `DOCKERHUB_TOKEN` (a Docker Hub access token with Read & Write).
+
+Dependabot opens pull requests for new dependency versions: daily for `garminconnect` (it carries
+the fixes when Garmin changes its login), weekly for the rest. Merge one and the new image follows.
 
 ## License
 
