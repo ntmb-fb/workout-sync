@@ -48,10 +48,17 @@ class Strava:
         tok = self._token_request(grant_type="authorization_code", code=code)
         a = tok.get("athlete") or {}
         self.db.set("strava_athlete", f"{a.get('firstname', '')} {a.get('lastname', '')}".strip())
+        if a.get("id"):
+            self.db.set("strava_athlete_id", int(a["id"]))
 
     def disconnect(self) -> None:
         self.db.delete(TOKEN_KEY)
         self.db.delete("strava_athlete")
+        self.db.delete("strava_athlete_id")
+
+    @property
+    def athlete_id(self) -> int | None:
+        return self.db.get("strava_athlete_id")
 
     def _token_request(self, **params) -> dict:
         r = self.http.post(f"{OAUTH}/token", data={
@@ -80,6 +87,30 @@ class Strava:
         if r.status_code != 200:
             raise StravaError(f"Strava GET {path}: HTTP {r.status_code} {r.text[:200]}")
         return r.json()
+
+    # ---- webhook subscription (one per API app; uses the app's client id and secret)
+
+    def _app_creds(self) -> dict:
+        return {"client_id": self.client_id, "client_secret": self.client_secret}
+
+    def list_subscriptions(self) -> list[dict]:
+        r = self.http.get(f"{API}/push_subscriptions", params=self._app_creds(), timeout=30)
+        if r.status_code != 200:
+            raise StravaError(f"Strava webhook list failed: HTTP {r.status_code} {r.text[:200]}")
+        return r.json() or []
+
+    def create_subscription(self, callback_url: str, verify_token: str) -> int:
+        """Strava calls callback_url (GET) to validate it before this returns."""
+        r = self.http.post(f"{API}/push_subscriptions", timeout=60, data={
+            **self._app_creds(), "callback_url": callback_url, "verify_token": verify_token})
+        if r.status_code not in (200, 201):
+            raise StravaError(f"Strava webhook setup failed: HTTP {r.status_code} {r.text[:300]}")
+        return int(r.json()["id"])
+
+    def delete_subscription(self, sub_id: int) -> None:
+        r = self.http.delete(f"{API}/push_subscriptions/{sub_id}", params=self._app_creds(), timeout=30)
+        if r.status_code not in (200, 204, 404):
+            raise StravaError(f"Strava webhook delete failed: HTTP {r.status_code} {r.text[:200]}")
 
     # ---- data
 

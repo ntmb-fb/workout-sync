@@ -68,6 +68,13 @@
       {% if strava.connected %}
         <div class="ok">Connected{% if strava.athlete_name %} as {{ strava.athlete_name }}{% endif %}</div>
         <form method="post" action="/strava/disconnect"><button class="ghost">Disconnect</button></form>
+        {% if s.webhook_url %}
+          <div class="muted">Webhook:
+            {% if webhook_error %}<span class="bad">{{ webhook_error }}</span>
+            {% elif webhook_id %}<span class="ok">active</span>, syncs right after each upload
+            {% else %}not set up{% endif %}</div>
+          <form method="post" action="/strava/webhook/setup"><button class="ghost">{{ 'Check webhook' if webhook_id else 'Set up webhook' }}</button></form>
+        {% endif %}
       {% else %}
         <div class="muted">Not connected</div>
         <form method="get" action="/strava/connect"><button>Connect Strava</button></form>
