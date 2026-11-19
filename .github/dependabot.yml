@@ -1,0 +1,46 @@
+# Keeps dependencies current. garminconnect matters most: when Garmin changes its
+# login, the fix arrives as a new version of that library, so it is checked daily.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: daily
+    allow:
+      - dependency-name: garminconnect
+    labels: [dependencies, garmin]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: pip
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: garminconnect
+    groups:
+      python:
+        patterns: ["*"]
+    labels: [dependencies]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+    commit-message:
+      prefix: deps
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies]
+    commit-message:
+      prefix: ci
