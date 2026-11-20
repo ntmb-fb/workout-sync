@@ -14,7 +14,7 @@ name: Purge green run logs
 
 on:
   workflow_run:
-    workflows: ["test and build"]
+    workflows: ["test and build", "Delete merged branches"]
     types: [completed]
   workflow_dispatch:
 
