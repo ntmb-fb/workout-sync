@@ -1,9 +1,9 @@
 APScheduler==3.11.3
 cryptography==50.0.2
-fastapi==0.162.0
-fit-tool==0.9.16
+fastapi==0.163.1
+fit-tool==0.9.17
 garminconnect==0.3.20
 Jinja2==3.1.6
-python-multipart==0.0.32
+python-multipart==0.0.34
 requests==2.34.2
 uvicorn==0.54.0
